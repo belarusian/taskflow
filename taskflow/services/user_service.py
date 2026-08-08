@@ -20,6 +20,7 @@ class UserService:
         username: str,
         email: str = "",
         display_name: str = "",
+        is_active: bool = True,
     ) -> User:
         """Create a new user."""
         if self.store.exists(username):
@@ -28,6 +29,7 @@ class UserService:
             username=username,
             email=email,
             display_name=display_name,
+            is_active=is_active,
         )
         return self.store.create(user)
 
