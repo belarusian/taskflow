@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -44,14 +44,14 @@ class Notification:
     sender: Optional[str] = None
     ticket_id: Optional[str] = None
     is_read: bool = False
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     read_at: Optional[datetime] = None
     metadata: dict = field(default_factory=dict)
 
     def mark_read(self) -> None:
         """Mark notification as read."""
         self.is_read = True
-        self.read_at = datetime.utcnow()
+        self.read_at = datetime.now(timezone.utc)
 
     def to_dict(self) -> dict:
         """Convert notification to dictionary for serialization."""

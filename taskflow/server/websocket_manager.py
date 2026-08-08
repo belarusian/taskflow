@@ -1,186 +1,217 @@
-"""WebSocket connection manager for real-time collaboration."""
+"""WebSocket manager for real-time collaboration."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
-
-from fastapi import WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
 
 
-class Connection:
+class WebSocketConnection:
     """Represents a single WebSocket connection."""
 
-    def __init__(self, websocket: WebSocket, username: str, connection_id: str) -> None:
-        """Initialize a connection."""
+    def __init__(self, websocket: Any, username: str) -> None:
+        """Initialize connection.
+
+        Args:
+            websocket: The WebSocket connection object.
+            username: Username associated with this connection.
+        """
         self.websocket = websocket
         self.username = username
-        self.connection_id = connection_id
-        self.connected_at = datetime.utcnow()
-        self.last_activity = datetime.utcnow()
-        self.is_connected = True
-        self.subscribed_events: set[str] = set()
+        self.connected_at = datetime.now(timezone.utc)
+        self.last_activity = datetime.now(timezone.utc)
+        self.subscriptions: set[str] = set()
 
-    async def send_json(self, data: dict[str, Any]) -> None:
-        """Send JSON data to the connection."""
-        if self.is_connected:
-            try:
-                await self.websocket.send_json(data)
-                self.last_activity = datetime.utcnow()
-            except Exception as e:
-                logger.error(f"Error sending to {self.connection_id}: {e}")
-                self.is_connected = False
+    async def send(self, data: dict[str, Any]) -> None:
+        """Send data to this connection.
 
-    async def send_text(self, text: str) -> None:
-        """Send text data to the connection."""
-        if self.is_connected:
-            try:
-                await self.websocket.send_text(text)
-                self.last_activity = datetime.utcnow()
-            except Exception as e:
-                logger.error(f"Error sending to {self.connection_id}: {e}")
-                self.is_connected = False
+        Args:
+            data: Dictionary to send as JSON.
+        """
+        try:
+            await self.websocket.send(json.dumps(data))
+            self.last_activity = datetime.now(timezone.utc)
+        except Exception as e:
+            logger.error(f"Error sending to {self.username}: {e}")
 
-    def to_dict(self) -> dict:
-        """Convert connection to dictionary."""
-        return {
-            "connection_id": self.connection_id,
-            "username": self.username,
-            "connected_at": self.connected_at.isoformat(),
-            "last_activity": self.last_activity.isoformat(),
-            "is_connected": self.is_connected,
-            "subscribed_events": list(self.subscribed_events),
-        }
+    def is_expired(self, timeout: int = 300) -> bool:
+        """Check if connection has been inactive too long.
+
+        Args:
+            timeout: Seconds of inactivity before expiry.
+
+        Returns:
+            True if connection is expired.
+        """
+        elapsed = (datetime.now(timezone.utc) - self.last_activity).total_seconds()
+        return elapsed > timeout
 
 
 class WebSocketManager:
-    """Manages all WebSocket connections and message broadcasting."""
+    """Manages WebSocket connections for real-time updates."""
 
     def __init__(self) -> None:
-        """Initialize the WebSocket manager."""
-        self.connections: dict[str, Connection] = {}
-        self.user_connections: dict[str, list[str]] = {}
+        """Initialize the manager."""
+        self._connections: dict[str, WebSocketConnection] = {}
+        self._subscribers: dict[str, set[str]] = {}
         self._lock = asyncio.Lock()
 
-    async def connect(self, websocket: WebSocket, username: str) -> Connection:
-        """Accept a new WebSocket connection."""
-        await websocket.accept()
-        connection_id = f"{username}_{id(websocket)}"
-        connection = Connection(websocket, username, connection_id)
+    async def register(self, websocket: Any, username: str) -> None:
+        """Register a new WebSocket connection.
 
+        Args:
+            websocket: The WebSocket connection object.
+            username: Username for this connection.
+        """
         async with self._lock:
-            self.connections[connection_id] = connection
-            if username not in self.user_connections:
-                self.user_connections[username] = []
-            self.user_connections[username].append(connection_id)
+            conn = WebSocketConnection(websocket, username)
+            self._connections[username] = conn
+            logger.info(f"User {username} connected")
 
-        logger.info(f"User {username} connected ({connection_id})")
-        await connection.send_json({
-            "type": "connected",
-            "connection_id": connection_id,
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-        return connection
+    async def unregister(self, username: str) -> None:
+        """Remove a WebSocket connection.
 
-    async def disconnect(self, connection_id: str) -> None:
-        """Handle a WebSocket disconnection."""
+        Args:
+            username: Username to disconnect.
+        """
         async with self._lock:
-            connection = self.connections.pop(connection_id, None)
-            if connection:
-                connection.is_connected = False
-                if connection.username in self.user_connections:
-                    if connection_id in self.user_connections[connection.username]:
-                        self.user_connections[connection.username].remove(connection_id)
-                    if not self.user_connections[connection.username]:
-                        del self.user_connections[connection.username]
-                logger.info(f"User {connection.username} disconnected ({connection_id})")
+            if username in self._connections:
+                conn = self._connections.pop(username)
+                # Remove from all subscriptions
+                for subs in self._subscribers.values():
+                    subs.discard(username)
+                logger.info(f"User {username} disconnected")
 
-    async def broadcast(self, message: dict[str, Any], exclude: Optional[str] = None) -> int:
-        """Broadcast a message to all connected clients."""
-        sent_count = 0
-        for conn_id, connection in list(self.connections.items()):
-            if exclude and conn_id == exclude:
-                continue
-            if connection.is_connected:
-                await connection.send_json(message)
-                sent_count += 1
-        return sent_count
+    async def subscribe(self, username: str, event_type: str) -> None:
+        """Subscribe a user to an event type.
 
-    async def send_to_user(self, username: str, message: dict[str, Any]) -> int:
-        """Send a message to all connections of a specific user."""
-        sent_count = 0
-        if username in self.user_connections:
-            for conn_id in self.user_connections[username]:
-                connection = self.connections.get(conn_id)
-                if connection and connection.is_connected:
-                    await connection.send_json(message)
-                    sent_count += 1
-        return sent_count
+        Args:
+            username: Username to subscribe.
+            event_type: Event type to subscribe to.
+        """
+        async with self._lock:
+            if username not in self._subscribers:
+                self._subscribers[username] = set()
+            self._subscribers[username].add(event_type)
+            if event_type not in self._subscribers:
+                self._subscribers[event_type] = set()
+            self._subscribers[event_type].add(username)
+            logger.debug(f"User {username} subscribed to {event_type}")
 
-    async def send_to_connection(self, connection_id: str, message: dict[str, Any]) -> bool:
-        """Send a message to a specific connection."""
-        connection = self.connections.get(connection_id)
-        if connection and connection.is_connected:
-            await connection.send_json(message)
-            return True
+    async def unsubscribe(self, username: str, event_type: str) -> None:
+        """Unsubscribe a user from an event type.
+
+        Args:
+            username: Username to unsubscribe.
+            event_type: Event type to unsubscribe from.
+        """
+        async with self._lock:
+            if username in self._subscribers:
+                self._subscribers[username].discard(event_type)
+            if event_type in self._subscribers:
+                self._subscribers[event_type].discard(username)
+
+    async def broadcast(self, data: dict[str, Any]) -> int:
+        """Broadcast data to all connected users.
+
+        Args:
+            data: Dictionary to broadcast.
+
+        Returns:
+            Number of users who received the message.
+        """
+        sent = 0
+        async with self._lock:
+            for username, conn in list(self._connections.items()):
+                await conn.send(data)
+                sent += 1
+        return sent
+
+    async def broadcast_to_subscribers(self, event_type: str, data: dict[str, Any]) -> int:
+        """Broadcast to users subscribed to an event type.
+
+        Args:
+            event_type: Event type to match subscriptions.
+            data: Dictionary to broadcast.
+
+        Returns:
+            Number of subscribers who received the message.
+        """
+        sent = 0
+        async with self._lock:
+            subscribers = self._subscribers.get(event_type, set())
+            for username in subscribers:
+                if username in self._connections:
+                    await self._connections[username].send(data)
+                    sent += 1
+        return sent
+
+    async def send_to_user(self, username: str, data: dict[str, Any]) -> bool:
+        """Send data to a specific user.
+
+        Args:
+            username: Username to send to.
+            data: Dictionary to send.
+
+        Returns:
+            True if message was sent successfully.
+        """
+        async with self._lock:
+            if username in self._connections:
+                await self._connections[username].send(data)
+                return True
         return False
 
-    async def subscribe(self, connection_id: str, event_type: str) -> None:
-        """Subscribe a connection to an event type."""
-        connection = self.connections.get(connection_id)
-        if connection:
-            connection.subscribed_events.add(event_type)
-            logger.info(f"Connection {connection_id} subscribed to {event_type}")
+    def get_connected_users(self) -> list[str]:
+        """Get list of connected usernames.
 
-    async def unsubscribe(self, connection_id: str, event_type: str) -> None:
-        """Unsubscribe a connection from an event type."""
-        connection = self.connections.get(connection_id)
-        if connection:
-            connection.subscribed_events.discard(event_type)
-
-    async def broadcast_to_subscribers(self, event_type: str, message: dict[str, Any]) -> int:
-        """Broadcast to connections subscribed to a specific event type."""
-        sent_count = 0
-        for connection in self.connections.values():
-            if connection.is_connected and event_type in connection.subscribed_events:
-                await connection.send_json(message)
-                sent_count += 1
-        return sent_count
-
-    def get_active_connections(self) -> list[Connection]:
-        """Get all active connections."""
-        return [c for c in self.connections.values() if c.is_connected]
-
-    def get_user_count(self) -> int:
-        """Get count of unique connected users."""
-        return len(self.user_connections)
+        Returns:
+            List of connected usernames.
+        """
+        return list(self._connections.keys())
 
     def get_connection_count(self) -> int:
-        """Get total connection count."""
-        return len(self.connections)
+        """Get number of active connections.
 
-    def is_user_online(self, username: str) -> bool:
-        """Check if a user has active connections."""
-        return username in self.user_connections and bool(
-            self.user_connections[username]
-        )
+        Returns:
+            Number of active connections.
+        """
+        return len(self._connections)
 
-    def get_online_users(self) -> list[str]:
-        """Get list of online usernames."""
-        return list(self.user_connections.keys())
+    async def cleanup_expired(self, timeout: int = 300) -> int:
+        """Remove expired connections.
 
-    async def get_status(self) -> dict:
-        """Get manager status for health checks."""
+        Args:
+            timeout: Seconds of inactivity before expiry.
+
+        Returns:
+            Number of connections removed.
+        """
+        removed = 0
+        async with self._lock:
+            expired = [
+                username for username, conn in self._connections.items()
+                if conn.is_expired(timeout)
+            ]
+            for username in expired:
+                await self.unregister(username)
+                removed += 1
+        return removed
+
+    def get_status(self) -> dict:
+        """Get manager status.
+
+        Returns:
+            Dictionary with status information.
+        """
         return {
-            "total_connections": self.get_connection_count(),
-            "unique_users": self.get_user_count(),
-            "online_users": self.get_online_users(),
-            "connections": [
-                c.to_dict() for c in self.get_active_connections()
-            ],
+            "connected_users": len(self._connections),
+            "subscriptions": {
+                k: len(v) for k, v in self._subscribers.items()
+            },
         }
