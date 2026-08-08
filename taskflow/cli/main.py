@@ -5,29 +5,30 @@ from __future__ import annotations
 import click
 
 from taskflow import __version__
-from taskflow.cli.tickets import tickets
-from taskflow.cli.labels import labels
-from taskflow.cli.project import project
-from taskflow.cli.ws import ws
+from taskflow.cli.ticket_commands import ticket
+from taskflow.cli.user_commands import user
+from taskflow.cli.label_commands import label
+from taskflow.cli.notification_commands import notification
+from taskflow.cli.server_commands import server
 
 
 @click.group()
 @click.version_option(version=__version__, prog_name="taskflow")
-def cli():
-    """TaskFlow - Ticket tracking with real-time collaboration."""
+def main() -> None:
+    """TaskFlow - A CLI tool for ticket tracking with real-time collaboration.
+
+    Manage tickets, users, labels, and collaborate in real-time.
+    """
     pass
 
 
 # Register subcommands
-cli.add_command(tickets, "tickets")
-cli.add_command(tickets, "ticket")
-cli.add_command(labels, "labels")
-cli.add_command(labels, "label")
-cli.add_command(project, "project")
-cli.add_command(project, "init")
-cli.add_command(ws, "ws")
-cli.add_command(ws, "websocket")
+main.add_command(ticket)
+main.add_command(user)
+main.add_command(label)
+main.add_command(notification)
+main.add_command(server)
 
 
 if __name__ == "__main__":
-    cli()
+    main()
