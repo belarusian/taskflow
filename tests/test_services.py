@@ -124,7 +124,11 @@ class TestTicketService:
         stats = ticket_service.get_stats()
         assert stats["total"] == 2
         assert stats["priority_high"] == 1
+        assert stats["priority_low"] == 1
         assert stats["done"] == 1
+        assert stats["todo"] == 1
+        assert "unassigned" in stats
+        assert "overdue" in stats
 
 
 class TestUserService:
@@ -239,16 +243,23 @@ class TestNotificationService:
             title="Test", recipient="alice"
         )
         assert notification_service.mark_as_read(notif.id) is True
+        loaded = notification_service.store.get(notif.id)
+        assert loaded is not None
+        assert loaded.is_read is True
 
     def test_mark_all_read(self, notification_service: NotificationService) -> None:
         notification_service.create_notification(title="A", recipient="alice")
         notification_service.create_notification(title="B", recipient="alice")
         count = notification_service.mark_all_read("alice")
         assert count == 2
+        unread = notification_service.get_unread_notifications("alice")
+        assert len(unread) == 0
 
     def test_get_unread_count(self, notification_service: NotificationService) -> None:
         notification_service.create_notification(title="A", recipient="alice")
+        notification_service.create_notification(title="B", recipient="bob")
         assert notification_service.get_unread_count("alice") == 1
+        assert notification_service.get_unread_count("bob") == 1
 
     def test_notify_mention(self, notification_service: NotificationService) -> None:
         notif = notification_service.notify_mention(
