@@ -1,11 +1,11 @@
-"""Utility functions for TaskFlow."""
+"""Utility modules for TaskFlow."""
 
-from taskflow.utils.formatters import format_ticket_table, format_timestamp
-from taskflow.utils.validators import validate_priority, validate_status
+from taskflow.utils.formatter import format_ticket_table, format_ticket_json
+from taskflow.utils.config import get_config, set_config
 
 __all__ = [
     "format_ticket_table",
-    "format_timestamp",
-    "validate_priority",
-    "validate_status",
+    "format_ticket_json",
+    "get_config",
+    "set_config",
 ]
