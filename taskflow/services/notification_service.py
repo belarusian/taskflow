@@ -19,13 +19,22 @@ class NotificationService:
     def create_notification(
         self,
         title: str,
-        message: str,
+        message: str = "",
         recipient: Optional[str] = None,
         sender: Optional[str] = None,
         ticket_id: Optional[str] = None,
         notification_type: NotificationType = NotificationType.SYSTEM,
     ) -> Notification:
-        """Create and persist a notification."""
+        """Create and persist a notification.
+
+        Args:
+            title: Notification title.
+            message: Notification message body (defaults to empty string).
+            recipient: Username of the recipient.
+            sender: Username of the sender.
+            ticket_id: Optional associated ticket ID.
+            notification_type: Type of notification.
+        """
         notification = Notification(
             type=notification_type,
             title=title,

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
-from typing import Any, Callable, Optional
+from datetime import datetime, timezone
+from typing import Any, Callable, Optional, Union
 
 from taskflow.models.notification import Notification, NotificationType
 from taskflow.server.websocket_manager import WebSocketManager
@@ -36,7 +36,7 @@ class NotificationEngine:
         event = {
             "type": event_type,
             "data": data,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "server",
         }
 
@@ -61,16 +61,29 @@ class NotificationEngine:
 
     async def emit_ticket_event(
         self,
-        event_type: NotificationType,
+        event_type: Union[NotificationType, str],
         ticket_data: dict[str, Any],
         sender: Optional[str] = None,
         recipient: Optional[str] = None,
     ) -> int:
-        """Emit a ticket-related event."""
+        """Emit a ticket-related event.
+
+        Args:
+            event_type: Either a NotificationType enum or a string like "ticket_created".
+            ticket_data: Dictionary with ticket information.
+            sender: Username of the sender.
+            recipient: Optional specific recipient username.
+        """
+        # Normalize to string value
+        if isinstance(event_type, NotificationType):
+            event_value = event_type.value
+        else:
+            event_value = event_type
+
         data = {
             "ticket": ticket_data,
             "sender": sender,
-            "event_type": event_type.value,
+            "event_type": event_value,
         }
 
         # Send to specific recipient if provided
@@ -78,11 +91,11 @@ class NotificationEngine:
             await self.ws_manager.send_to_user(recipient, {
                 "type": "notification",
                 "data": data,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             })
 
         # Broadcast to ticket event subscribers
-        return await self.emit(f"ticket.{event_type.value}", data)
+        return await self.emit(f"ticket.{event_value}", data)
 
     async def emit_user_event(
         self,
