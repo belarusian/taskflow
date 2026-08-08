@@ -179,7 +179,8 @@ class TestNotificationEngine:
         engine.on("test.event", handler)
         await engine.emit("test.event", {"data": "hello"})
         assert len(received) == 1
-        assert received[0]["data"] == "hello"
+        assert received[0]["type"] == "test.event"
+        assert received[0]["data"]["data"] == "hello"
 
     @pytest.mark.asyncio
     async def test_emit_ticket_event(self, engine: NotificationEngine) -> None:
