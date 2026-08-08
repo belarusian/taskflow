@@ -24,6 +24,20 @@ class NotificationStore(FileStore):
 
     def _to_dict(self, notification: Notification) -> dict:
         """Convert notification to serializable dict."""
+        created_at = notification.created_at
+        if isinstance(created_at, str):
+            created_at_str = created_at
+        else:
+            created_at_str = created_at.isoformat()
+
+        read_at = notification.read_at
+        if isinstance(read_at, str):
+            read_at_str = read_at
+        elif read_at is not None:
+            read_at_str = read_at.isoformat()
+        else:
+            read_at_str = None
+
         return {
             "id": notification.id,
             "type": notification.type.value,
@@ -34,8 +48,8 @@ class NotificationStore(FileStore):
             "sender": notification.sender,
             "ticket_id": notification.ticket_id,
             "is_read": notification.is_read,
-            "created_at": notification.created_at.isoformat(),
-            "read_at": notification.read_at.isoformat() if notification.read_at else None,
+            "created_at": created_at_str,
+            "read_at": read_at_str,
             "metadata": notification.metadata,
         }
 
