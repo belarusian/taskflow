@@ -1,5 +1,5 @@
-"""CLI module for TaskFlow."""
+"""CLI package for TaskFlow."""
 
-from taskflow.cli.main import cli
+from taskflow.cli.main import main
 
-__all__ = ["cli"]
+__all__ = ["main"]
